@@ -4,23 +4,42 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.widget.*
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import java.io.File
-import android.media.MediaPlayer
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.ListView
+import android.widget.SeekBar
+import android.widget.Spinner
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import com.example.musicapp.models.Playlist
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.example.musicapp.manager.PlaylistManager
+import com.example.musicapp.models.Playlist
+import java.io.File
 
+enum class PlayMode {
+    STOP,
+    NEXT,
+    SHUFFLE;
+
+    fun next(): PlayMode {
+        return values()[(ordinal + 1) % values().size]
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -45,9 +64,10 @@ class MainActivity : AppCompatActivity() {
     private var isTouchingSeekBar = false
 
     private var mediaPlayer: MediaPlayer? = null
-    private var songList: MutableList<String> = mutableListOf()
+    private var songList: MutableList<String> = mutableListOf() // Wszystkie piosenki z aktualnego folderu
+    private var currentPlaylistSongs: MutableList<String> = mutableListOf() // Piosenki w jednej playliście
     private var currentSongIndex: Int = 0
-    private var playMode = 1 // 1 = Stop, 2 = Next, 3 = Shuffle
+    private var playMode = PlayMode.STOP // 1 = Stop, 2 = Next, 3 = Shuffle
 
     private var updateProgressRunnable: Runnable? = null
 
@@ -60,6 +80,38 @@ class MainActivity : AppCompatActivity() {
 
 
     val handler = Handler(Looper.getMainLooper())
+
+    //
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+//        Toast.makeText(this, "Instance Saved", Toast.LENGTH_SHORT).show()
+
+        if (mediaPlayer != null) {
+            outState.putInt("currentSongIndex", currentSongIndex)
+            outState.putBoolean("isPlaying", mediaPlayer!!.isPlaying)
+            outState.putStringArrayList("songList", ArrayList(songList))
+            outState.putInt("currentPosition", mediaPlayer!!.currentPosition)
+        }
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+//        Toast.makeText(this, "Instance Restored", Toast.LENGTH_SHORT).show()
+
+        currentSongIndex = savedInstanceState.getInt("currentSongIndex")
+        val isPlaying = savedInstanceState.getBoolean("isPlaying", false)
+        val currentPosition = savedInstanceState.getInt("currentPosition", 0)
+        adapter.notifyDataSetChanged()
+
+        if (isPlaying) {
+            playSong(songList[currentSongIndex]) // odtwórz, jeśli była odtwarzana
+//            Toast.makeText(this, "Trying to play: " + songList[currentSongIndex], Toast.LENGTH_SHORT).show()
+            mediaPlayer?.seekTo(currentPosition) // Ustawiamy pozycję odtwarzania
+//            Toast.makeText(this, "Current position: " + currentPosition, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,9 +157,9 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                        isTouchingSeekBar = false
-                        mediaPlayer?.start()
-                        playPauseButton.text = "Pause"
+                    isTouchingSeekBar = false
+                    mediaPlayer?.start()
+                    playPauseButton.text = "Pause"
                     true
                 }
 
@@ -211,7 +263,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Poczatkowe sortowanie
-        sortSongs()
+        //sortSongs()
 
         // Test playlist
         //testPlaylists()
@@ -246,6 +298,7 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+
     }
 
     // załadowanie piosenek
@@ -291,63 +344,71 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Odtwarzanie piosenek
-    private fun playSong(song: String) {
+
+    // zmiana metody playSong (podział na główną częsć z podrzędna metoda obsługująca interfejs Runnable do obsługi mediaPlayer i paska progresu
+
+    private fun playSong(song: String, autoStart: Boolean = true, seekToMs: Int? = null) {
         mediaPlayer?.stop()
         mediaPlayer?.reset()
 
-        // Ścieżka do pliku
-        val songFile = File("${musicFolder.absolutePath}/${song}")
-
+        val songFile = File("${musicFolder.absolutePath}/$song")
         if (songFile.exists()) {
             try {
                 mediaPlayer = MediaPlayer().apply {
                     setDataSource(songFile.absolutePath)
                     prepare()
-                    start()
 
-                    val songNameTextView = findViewById<TextView>(R.id.songNameText)
-                    songNameTextView.text = song
+                    seekToMs?.let { seekTo(it) }
 
+                    if (autoStart) {
+                        start()
+                        playPauseButton.text = "Pause"
+                        startProgressRunnable()
+                    } else {
+                        playPauseButton.text = "Play"
+                    }
+
+                    findViewById<TextView>(R.id.songNameText).text = song
                     totalTimeText.text = formatTime(duration)
 
-                    // Start Timeru dla paska postępu
-                    updateProgressRunnable = object : Runnable {
-                        override fun run() {
-
-                            if (mediaPlayer != null) {
-                                if (isTouchingSeekBar) {
-                                    handler.postDelayed(this, 1000) // Aktualizacja co 1 sekundę
-                                } else {
-                                val currentPosition = mediaPlayer!!.currentPosition
-                                val progress = (currentPosition * 100) / mediaPlayer!!.duration
-                                progressBar.progress = progress
-                                currentTimeText.text = formatTime(currentPosition)
-                                handler.postDelayed(this, 1000) // Aktualizacja co 1 sekundę
-                                }
-                            }
-                        }
+                    setOnCompletionListener {
+                        handler.removeCallbacks(updateProgressRunnable!!)
+                        updateProgressRunnable = null
+                        songEnd(song)
                     }
-                    handler.post(updateProgressRunnable as Runnable)
                 }
 
-                //Toast.makeText(this, "Playing: $song", Toast.LENGTH_SHORT).show()
-                playPauseButton.text = "Pause"
                 adapter.notifyDataSetChanged()
-
-                mediaPlayer?.setOnCompletionListener {
-                    handler.removeCallbacks(updateProgressRunnable as Runnable)
-                    updateProgressRunnable = null // Czyścimy referencję
-                    songEnd(song)
-                }
 
             } catch (e: Exception) {
                 e.printStackTrace()
-                //Toast.makeText(this, "Error playing the song.", Toast.LENGTH_SHORT).show()
             }
-        } else {
-            //Toast.makeText(this, "Song not found.", Toast.LENGTH_SHORT).show()
         }
     }
+
+
+    private fun startProgressRunnable() {
+        updateProgressRunnable = object : Runnable {
+            override fun run() {
+                mediaPlayer?.let {
+                    try {
+                        if (!isTouchingSeekBar) {
+                            val currentPosition = it.currentPosition
+                            val progress = (currentPosition * 100) / it.duration
+                            progressBar.progress = progress
+                            currentTimeText.text = formatTime(currentPosition)
+                        }
+                        handler.postDelayed(this, 1000)
+                    } catch (e: IllegalStateException) {
+                        // MediaPlayer nie gotowy – ignorujemy lub logujemy
+                        Log.e("MediaPlayer", "Nie można pobrać pozycji: ${e.message}")
+                    }
+                }
+            }
+        }
+        handler.post(updateProgressRunnable!!)
+    }
+
 
     // Przycisk Play/Pause
     private fun togglePlayPause() {
@@ -383,18 +444,18 @@ class MainActivity : AppCompatActivity() {
     // Koniec piosenki działanie
     private fun songEnd(currentSong: String) {
         when (playMode) {
-            1 -> {
+            PlayMode.STOP -> {
                 // Tryb 1: Zatrzymaj
                 playSong(currentSong)
                 mediaPlayer?.pause()
                 playPauseButton.text = "Play"
 
             }
-            2 -> {
+            PlayMode.NEXT -> {
                 // Tryb 2: Odtwórz następny utwór
                 playNextSong()
             }
-            3 -> {
+            PlayMode.SHUFFLE -> {
                 // Tryb 3: Odtwórz losowy utwór
                 val randomIndex = songList.indices.filter { it != songList.indexOf(currentSong) }.random()
                 currentSongIndex = randomIndex
@@ -405,15 +466,17 @@ class MainActivity : AppCompatActivity() {
 
     // Zmiana trybu zmian piosenki
     private fun changePlayMode() {
-        playMode = (playMode % 3) + 1 // Przełączaj między 1, 2, 3
+        playMode = playMode.next() // Przełącz na następny tryb
+
         val modeText = when (playMode) {
-            1 -> "Stop"
-            2 -> "Next"
-            3 -> "Shuffle"
-            else -> "Stop"
+            PlayMode.STOP -> "Stop"
+            PlayMode.NEXT -> "Next"
+            PlayMode.SHUFFLE -> "Shuffle"
         }
+
         playModeButton.text = "Mode: $modeText"
     }
+
 
     private fun testPlaylists() {
         // Przykład tworzenia nowej playlisty
