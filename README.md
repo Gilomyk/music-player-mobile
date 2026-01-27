@@ -23,5 +23,15 @@ To jest lokalna aplikacja mobilna na Androida napisana w Javie, służąca do pr
 - Java 8+
 - Uprawnienia do czytania pamięci urządzenia
 
+## MVVM refaktor (MainActivity)
+- UI wiring i obsługa widoków: `ui/main/MainActivity.kt`
+- Stan i intencje użytkownika: `ui/main/MainViewModel.kt`
+- Logika odtwarzania: `domain/player/PlaybackController.kt` + `data/player/AudioPlayerImpl.kt`
+- Playlisty: `manager/PlaylistManager.kt` + `data/playlist/PlaylistRepositoryImpl.kt`
+
+### Uruchomienie/testy
+- Otwórz projekt w Android Studio i uruchom aplikację na urządzeniu/emulatorze.
+- Testy jednostkowe: `./gradlew test`
+
 ## Autor
 Łukasz Chmielnicki
