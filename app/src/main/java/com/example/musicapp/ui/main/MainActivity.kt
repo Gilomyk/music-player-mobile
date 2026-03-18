@@ -267,7 +267,7 @@ class MainActivity : AppCompatActivity() {
 
                     playPauseButton.text = if (state.isPlaying) "Pause" else "Play"
 
-                    if (!isTouchingSeekBar && state.durationMs > 0) {
+                    if (state.durationMs > 0) {
                         progressBar.progress = (state.progressMs * 100) / state.durationMs
                         currentTimeText.text = formatTime(state.progressMs)
                     }

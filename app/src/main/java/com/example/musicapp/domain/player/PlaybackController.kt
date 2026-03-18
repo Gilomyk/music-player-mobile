@@ -3,6 +3,7 @@ package com.example.musicapp.domain.player
 import java.io.File
 import kotlin.random.Random
 
+//TODO: Fix possible issue of playing a song with initialized index 0 without actual music files in source
 class PlaybackController(
     private val audioPlayer: IAudioPlayer,
     private val musicFolder: File,
